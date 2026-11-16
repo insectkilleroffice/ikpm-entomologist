@@ -6,9 +6,9 @@
  * per action. Validation runs here for quick feedback and again on the server.
  */
 import { useEffect, useId, useState, useTransition, type ReactNode } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { ento } from "@/lib/client-data";
 import { uploadFiles, removeUploads } from "@/lib/upload";
-import { cancelRequest, commentComplaint, decideJob, lodgeComplaint, respondMeeting, sendRevisit, submitRequest } from "@/app/actions";
+import { cancelRequest, commentComplaint, decideJob, lodgeComplaint, recordSiteVisit, respondMeeting, sendRevisit, submitRequest } from "@/app/actions";
 import { COMPLAINT_CATEGORY, PRIORITY } from "@/lib/labels";
 import { addDays, fmtDate, todayYmd } from "@/lib/time";
 import type { ActionResult, SiteRow } from "@/lib/types";
@@ -88,7 +88,7 @@ function useSiteJobs(siteId: string | undefined) {
       setJobs([]);
       return;
     }
-    createClient().schema("ento").from("v_jobs").select("visit_id,job_code,visit_date,kind")
+    ento().from("v_jobs").select("visit_id,job_code,visit_date,kind")
       .eq("site_id", siteId).not("verification_status", "is", null).lte("visit_date", todayYmd()).order("visit_date", { ascending: false }).limit(60)
       .then(({ data }) => live && setJobs(data ?? []));
     return () => {
@@ -464,6 +464,46 @@ export function ComplaintForm({ userId, sites, fixed, preset, onDone }: {
       </div>
     </div>
   );
+}
+
+/* ---------------------------------------------------------------------------
+   Site visit (recorded inline in the gap report): upload photos, then save
+   --------------------------------------------------------------------------- */
+export type DraftFinding = {
+  key: number; category: string; department: string; area: string; description: string; risk: string;
+  recommendation: string; severity: string; responsibility: string; files: File[];
+};
+export type DraftCheck = { result: "" | "fixed" | "not_fixed"; note: string };
+
+/** Uploads the visit's and each new finding's photos, then records the visit; removes the uploads if it fails. */
+export async function saveSiteVisit(userId: string, v: {
+  siteId: string; date: string; pest: string; notes: string; files: File[];
+  checks: Record<string, DraftCheck>; findings: DraftFinding[];
+}): Promise<ActionResult<{ id: string }>> {
+  const uploaded: string[] = [];
+  try {
+    const up = await uploadFiles(userId, "site-visits", v.files);
+    uploaded.push(...up.map((u) => u.path));
+    const findings = [];
+    for (const f of v.findings) {
+      const fu = await uploadFiles(userId, "findings", f.files);
+      uploaded.push(...fu.map((u) => u.path));
+      findings.push({
+        category: f.category, department: f.department, area: f.area, description: f.description, risk: f.risk,
+        recommendation: f.recommendation, severity: f.severity, responsibility: f.responsibility || undefined, files: fu,
+      });
+    }
+    const r = await recordSiteVisit({
+      siteId: v.siteId, visitDate: v.date, pestActivity: v.pest || undefined, notes: v.notes, files: up, findings,
+      checks: Object.entries(v.checks).filter(([, c]) => c.result)
+        .map(([findingId, c]) => ({ findingId, result: c.result as "fixed" | "not_fixed", note: c.note })),
+    });
+    if (!r.ok) await removeUploads(uploaded);
+    return r;
+  } catch (e) {
+    await removeUploads(uploaded);
+    return { ok: false, error: `Could not save: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 /* ---------------------------------------------------------------------------

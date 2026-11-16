@@ -8,7 +8,7 @@ export const MAX_FILES = 6;
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const FILE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
 
-/** Collects field errors; each method returns the cleaned value (or null). Used on the server. */
+/** Collects field errors; each method returns the cleaned value (or null). Used by the actions. */
 export function validator() {
   const errors: Record<string, string> = {};
   const fail = (k: string, m: string) => {
@@ -57,16 +57,4 @@ export function validator() {
       return Object.keys(errors).length ? { ok: false, error: "Please fix the highlighted fields.", fields: errors } : null;
     },
   };
-}
-
-/** Database errors raised by the ento functions are already written for people; others get a plain message. */
-export function dbError(e: { message?: string; code?: string } | null | undefined): ActionResult<never> {
-  const code = e?.code ?? "";
-  const msg = e?.message ?? "";
-  if (code === "PGRST202" || /schema must be one of/i.test(msg) || code === "PGRST106")
-    return { ok: false, error: "The entomologist database is not set up yet (run the ento migrations and expose the \"ento\" schema)." };
-  if (/JWT|not authenticated/i.test(msg)) return { ok: false, error: "Your session has expired. Sign in again." };
-  if (["22023", "42501", "P0002", "23505", "23514"].includes(code) && msg) return { ok: false, error: msg };
-  console.error("Database error", e);
-  return { ok: false, error: "Something went wrong saving this. Please try again." };
 }

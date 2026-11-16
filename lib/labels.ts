@@ -88,3 +88,36 @@ export const PEST_ACTIVITY: Record<string, string> = { none: "None", low: "Low",
 export function lookup<T>(map: Record<string, T>, key: string | null | undefined, fallback: T): T {
   return (key && map[key]) || fallback;
 }
+
+export const FINDING_STATUS: Record<string, { label: string; tone: Tone }> = {
+  open: { label: "Open", tone: "amber" },
+  fixed: { label: "Fixed", tone: "green" },
+};
+
+export const CHECK_RESULT: Record<string, { label: string; tone: Tone }> = {
+  fixed: { label: "Fixed", tone: "green" },
+  not_fixed: { label: "Not fixed", tone: "red" },
+};
+
+export const PEST_TONE: Record<string, Tone> = { none: "green", low: "blue", medium: "amber", high: "red" };
+
+/** Gap report: the finding's section, and its classification / responsibility labels. */
+export const FINDING_CATEGORY: Record<string, string> = {
+  structural: "Structural gap",
+  hygiene: "Hygiene & sanitation gap",
+  housekeeping: "Housekeeping & storage gap",
+  pest_activity: "Pest activity",
+  waste: "Waste management gap",
+  other: "Other observations",
+};
+export const FINDING_CATEGORY_ORDER = ["structural", "hygiene", "housekeeping", "pest_activity", "waste", "other"];
+
+/** Severity shown as the gap classification (same values as priority). */
+export const GAP_CLASS: Record<string, { label: string; tone: Tone }> = {
+  low: { label: "Low", tone: "gray" },
+  medium: { label: "Moderate", tone: "blue" },
+  high: { label: "High", tone: "amber" },
+  critical: { label: "Severe", tone: "red" },
+};
+
+export const RESPONSIBILITY: Record<string, string> = { client: "Client", ikpm: "IKPM", shared: "Client & IKPM" };

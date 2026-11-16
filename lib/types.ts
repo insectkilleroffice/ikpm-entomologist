@@ -99,6 +99,9 @@ export type InspectionRow = {
   report_notes: string | null;
   written_by_name: string | null;
   written_at: string | null;
+  /** Findings Operations wrote, and their photos (ops-files: <visit>/findings/<n>/…). Older reports have none. */
+  findings?: string[] | null;
+  found_photos?: string[] | null;
 };
 
 export type RequestRow = {
@@ -224,3 +227,84 @@ export type SignedFile = { path: string; url: string | null; name: string; isPdf
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T; message?: string }
   | { ok: false; error: string; fields?: Record<string, string> };
+
+/** ento.v_site_visits — an entomologist's own visit to a site (the site's visit history). */
+export type SiteVisitRow = {
+  id: string;
+  code: string;
+  site_id: string;
+  site_name: string;
+  site_city: string | null;
+  client_id: string;
+  client_name: string;
+  visit_date: string;
+  pest_activity: string | null;
+  notes: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  new_findings: number;
+  fixed_count: number;
+  not_fixed_count: number;
+};
+
+/** ento.v_site_findings — an issue found on a visit; open until a later visit marks it fixed. */
+export type FindingRow = {
+  id: string;
+  code: string;
+  site_id: string;
+  site_name: string;
+  site_city: string | null;
+  client_id: string;
+  client_name: string;
+  area: string | null;            // location
+  description: string;            // observation
+  severity: string;               // gap classification
+  category: string;
+  department: string | null;
+  risk: string | null;
+  recommendation: string | null;
+  responsibility: string | null;
+  status: "open" | "fixed";
+  found_visit_id: string;
+  found_visit_code: string;
+  found_on: string;
+  fixed_visit_id: string | null;
+  fixed_on: string | null;
+  fixed_by_name: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  last_result: "fixed" | "not_fixed" | null;
+  last_checked_on: string | null;
+  last_checked_by: string | null;
+  times_not_fixed: number;
+};
+
+/** ento.finding_checks — one re-check of a finding on a visit (permanent). */
+export type FindingCheckRow = {
+  id: string;
+  finding_id: string;
+  site_visit_id: string;
+  result: "fixed" | "not_fixed";
+  note: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+};
+
+/** ento.v_finding_checks — a check with its site and visit date (gap report grid). */
+export type CheckGridRow = FindingCheckRow & { site_id: string; visit_date: string };
+
+/** ento.v_site_inspection_summary — every branch with its inspection numbers (site_id null: a client with no branch). */
+export type SiteSummaryRow = {
+  site_id: string | null;
+  site_name: string | null;
+  site_city: string | null;
+  client_id: string;
+  client_name: string;
+  open_count: number;
+  fixed_count: number;
+  visit_count: number;
+  last_visit_date: string | null;
+};

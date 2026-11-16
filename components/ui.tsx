@@ -62,14 +62,11 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-/** Shown when a query fails (most often: the ento migrations have not been run yet). */
+/** Shown when a query fails. */
 export function LoadError({ error }: { error: { message?: string; code?: string } | null }) {
-  const notSetUp = !!error && (/schema must be one of|does not exist|PGRST106|PGRST205/i.test(`${error.message} ${error.code}`));
   return (
     <p className="err" role="alert">
-      {notSetUp
-        ? 'The entomologist database is not set up yet. Run the two files in supabase/migrations and add "ento" to Supabase → Settings → API → Exposed schemas.'
-        : `Could not load this: ${error?.message ?? "unknown error"}`}
+      {`Could not load this: ${error?.message ?? "unknown error"}`}
     </p>
   );
 }
@@ -159,7 +156,7 @@ export function sp(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v || undefined;
 }
 
-/** Keep only characters safe inside a PostgREST or() filter. */
+/** Keep only characters safe inside an or() search filter. */
 export function safeQuery(q: string | undefined) {
   return (q ?? "").replace(/[^\p{L}\p{N}\s\-_.]/gu, " ").trim().slice(0, 60);
 }

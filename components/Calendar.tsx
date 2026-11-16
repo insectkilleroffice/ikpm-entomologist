@@ -6,18 +6,18 @@
  *   centre Month / Week / Day calendar
  *   right  the selected day: your work summary, the selected site, the day's cards
  *   drawer everything else (job verification, reports, complaints, requests,
- *          meetings, site reports, lists, notifications) slides in from the right.
- * All data is live from Supabase (row security applies) and refreshes on Realtime changes.
+ *          meetings, site reports, site visits / findings, lists, notifications) slides in from the right.
+ * UI only: no data source is connected (see lib/client-data.ts), so it shows empty states.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ento, LIVE_EVENT, OPEN_EVENT } from "@/lib/client-data";
 import { MEETING_STATUS, REQUEST_STATUS, RSVP, VERIFICATION, VISIT_STATUS, COMPLAINT_OPEN, REQUEST_OPEN, type Tone } from "@/lib/labels";
 import { addDays, addMonths, dayParts, fmtDate, karachiHm, karachiIso, karachiYmd, todayYmd, weekday } from "@/lib/time";
 import type { SiteRow } from "@/lib/types";
-import { decodePanel, defaultTitle, encodePanel, PanelView, type Ctx, type ListKind, type Panel } from "./panels";
+import { decodePanel, defaultTitle, encodePanel, PanelView, visitSummary, type Ctx, type ListKind, type Panel } from "./panels";
 
 /* ---------- model ---------- */
-type Kind = "verification" | "revisit" | "inspection" | "meeting";
+type Kind = "verification" | "revisit" | "inspection" | "meeting" | "visit";
 type Cat = Kind | "action";
 type View = "month" | "week" | "day";
 
@@ -32,10 +32,11 @@ const TYPES: { key: Cat; label: string; color: string }[] = [
   { key: "revisit", label: "Revisit", color: "var(--t-rev)" },
   { key: "meeting", label: "Meeting", color: "var(--t-meet)" },
   { key: "inspection", label: "Inspection", color: "var(--t-insp)" },
+  { key: "visit", label: "My site visits", color: "var(--t-visit)" },
   { key: "action", label: "Needs action", color: "var(--red)" },
 ];
-const TCOL: Record<Kind, string> = { verification: "var(--t-svc)", revisit: "var(--t-rev)", inspection: "var(--t-insp)", meeting: "var(--t-meet)" };
-const KIND_LABEL: Record<Kind, string> = { verification: "Verification", revisit: "Revisit", inspection: "Inspection", meeting: "Meeting" };
+const TCOL: Record<Kind, string> = { verification: "var(--t-svc)", revisit: "var(--t-rev)", inspection: "var(--t-insp)", meeting: "var(--t-meet)", visit: "var(--t-visit)" };
+const KIND_LABEL: Record<Kind, string> = { verification: "Verification", revisit: "Revisit", inspection: "Inspection", meeting: "Meeting", visit: "Site visit" };
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const STORE = "ikpm-ento-planner-v1";
 const TICK = (
@@ -45,7 +46,8 @@ const TICK = (
 /** "Needs action" is the type filter for anything waiting on you (shown red, like Needs PCO in Operations). */
 const typeOk = (e: Ev, types: Cat[]) => !types.length || types.some((t) => (t === "action" ? e.action : e.kind === t));
 const panelOf = (e: Ev): Panel =>
-  e.kind === "verification" ? { t: "job", id: e.id } : e.kind === "meeting" ? { t: "meeting", id: e.id } : { t: "request", id: e.id };
+  e.kind === "verification" ? { t: "job", id: e.id } : e.kind === "meeting" ? { t: "meeting", id: e.id }
+    : e.kind === "visit" ? { t: "visit", id: e.id } : { t: "request", id: e.id };
 
 function rangeOf(view: View, anchor: string) {
   if (view === "day") return { start: anchor, end: anchor };
@@ -60,7 +62,7 @@ function daysBetween(a: string, b: string) { const out: string[] = []; for (let 
 async function fetchEvents(userId: string, start: string, end: string): Promise<Ev[]> {
   const db = ento();
   const today = todayYmd();
-  const [jobs, reqs, meets] = await Promise.all([
+  const [jobs, reqs, meets, visits] = await Promise.all([
     db.from("v_jobs").select("visit_id,job_code,kind,visit_status,visit_date,visit_time,site_id,site_name,client_name,pco_name,verification_status")
       // Only jobs the PCO has completed (they get a verification status on completion).
       .not("verification_status", "is", null)
@@ -70,8 +72,10 @@ async function fetchEvents(userId: string, start: string, end: string): Promise<
       .or(`and(scheduled_date.gte.${start},scheduled_date.lte.${end}),and(scheduled_date.is.null,recommended_date.gte.${start},recommended_date.lte.${end})`),
     db.from("v_my_meetings").select("id,title,starts_at,location,status,scheduled_by_name,rsvp")
       .gte("starts_at", karachiIso(start)).lt("starts_at", karachiIso(addDays(end, 1))),
+    db.from("v_site_visits").select("id,visit_date,site_id,site_name,client_name,new_findings,fixed_count,not_fixed_count")
+      .eq("created_by", userId).gte("visit_date", start).lte("visit_date", end),
   ]);
-  const err = jobs.error || reqs.error || meets.error;
+  const err = jobs.error || reqs.error || meets.error || visits.error;
   if (err) throw new Error(err.message);
   const out: Ev[] = [];
   for (const j of jobs.data ?? []) out.push({
@@ -98,6 +102,15 @@ async function fetchEvents(userId: string, start: string, end: string): Promise<
       title: m.title, siteId: null, company: m.location || "Online", assignee: `by ${m.scheduled_by_name}`,
       status: cancelled ? MEETING_STATUS.cancelled : RSVP[m.rsvp] ?? RSVP.pending,
       action: !cancelled && date >= today && m.rsvp === "pending", done: cancelled || date < today,
+    });
+  }
+  for (const v of visits.data ?? []) {
+    const issues = v.new_findings + v.not_fixed_count;
+    out.push({
+      key: `v${v.id}`, kind: "visit", id: v.id, date: v.visit_date, time: "",
+      title: v.site_name, siteId: v.site_id, company: v.client_name, assignee: visitSummary(v),
+      status: issues ? { label: `${issues} to fix`, tone: "amber" } : { label: "All clear", tone: "green" },
+      action: false, done: false,
     });
   }
   return out.sort((a, b) => (a.date + (a.time || "99")).localeCompare(b.date + (b.time || "99")));
@@ -162,9 +175,10 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
       db.from("complaints").select("id", h).eq("created_by", userId).in("status", COMPLAINT_OPEN),
       db.from("activity_requests").select("id", h).eq("created_by", userId).in("status", REQUEST_OPEN),
       db.from("v_my_meetings").select("id", h).gte("starts_at", new Date().toISOString()).neq("status", "cancelled"),
+      db.from("site_findings").select("id", h).eq("status", "open"),
     ]);
-    const [pending, verified, rejected, complaints, requests, meetings] = r.map((x) => x.count ?? 0);
-    setCounts({ pending, verified, rejected, complaints, requests, meetings });
+    const [pending, verified, rejected, complaints, requests, meetings, findings] = r.map((x) => x.count ?? 0);
+    setCounts({ pending, verified, rejected, complaints, requests, meetings, findings });
   }, [userId]);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch the visible range
@@ -315,7 +329,7 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
   }
 
   const work: [ListKind, string, string][] = [
-    ["pending", "pending", "Pending"], ["complaints", "complaints", "Complaints"], ["meetings", "meetings", "Meetings"],
+    ["findings", "findings", "Findings"], ["complaints", "complaints", "Complaints"],
   ];
 
   return (
@@ -323,6 +337,18 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
       <div className="layout">
         <aside className="side" aria-label="Filters">
           <div className="fb">
+            <section className="fs">
+              <div className="fs-h"><h3>Your work</h3></div>
+              <div className="fs-l" role="group" aria-label="Your work">
+                {work.map(([k, key, l]) => (
+                  <button key={k} type="button" className="fo wk" onClick={(e) => showPanel({ t: "list", id: k }, e.currentTarget)}>
+                    <i className="fo-d" style={{ background: key === "complaints" ? "var(--red)" : "var(--t-insp)" }} />
+                    <span className="fo-n">{l}</span>
+                    {key !== "findings" && (counts[key] ?? 0) > 0 && <span className={`fo-c${key === "complaints" ? " hot" : ""}`}>{counts[key]}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
             <section className="fs">
               <div className="fs-h">
                 <h3>Type</h3>
@@ -387,7 +413,7 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
                   <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)}>{v[0].toUpperCase() + v.slice(1)}</button>
                 ))}
               </div>
-              <span className="gc-load" aria-live="polite">{loading ? "Loading…" : <b style={{ color: "var(--ink)" }}>{label}</b>}</span>
+              <span className="gc-load" aria-live="polite">{loading ? "Loading…" : null}</span>
               <div className="gc-nav" style={{ marginInlineStart: "auto" }}>
                 <button type="button" aria-label={`Previous ${view}`} onClick={() => nav(-1)}>&lsaquo;</button>
                 <button type="button" className="gc-today" onClick={() => nav(0)}>Today</button>
@@ -402,21 +428,15 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
         <main className="main" aria-label="Selected day">
           <div className="head">
             <h1>{anchor === today ? "Today" : dayParts(anchor).long}</h1>
-            <p>{fmtDate(anchor, { weekday: false, year: false })}</p>
+            <p>{new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${anchor}T12:00:00Z`))}</p>
             {dayList.length > 0 && <span className="head-c">{dayList.length}</span>}
           </div>
-          <section className="work" aria-label="Your work">
-            {work.map(([k, key, l]) => (
-              <button key={k} type="button" className={key === "pending" && counts.pending ? "hot" : ""} onClick={(e) => showPanel({ t: "list", id: k }, e.currentTarget)}>
-                <b>{counts[key] ?? "–"}</b><span>{l}</span>
-              </button>
-            ))}
-          </section>
           {curSite && (
             <section className="sitecard">
               <div className="sc-t"><b>{curSite.site_name}</b><span>{curSite.client_name}{curSite.city ? ` · ${curSite.city}` : ""}</span></div>
               <div className="acts">
-                <button type="button" className="btn sm" onClick={(e) => showPanel({ t: "site", id: curSite.site_id }, e.currentTarget)}>Site report</button>
+                <button type="button" className="btn sm" onClick={(e) => showPanel({ t: "gap", id: curSite.site_id, edit: true }, e.currentTarget)}>Record visit</button>
+                <button type="button" className="btn alt sm" onClick={(e) => showPanel({ t: "site", id: curSite.site_id }, e.currentTarget)}>Site report</button>
                 <button type="button" className="btn alt sm" onClick={(e) => showPanel({ t: "new-complaint", site: curSite.site_id }, e.currentTarget)}>Lodge complaint</button>
                 <button type="button" className="btn alt sm" onClick={(e) => showPanel({ t: "new-request", kind: "inspection", site: curSite.site_id }, e.currentTarget)}>Request inspection</button>
               </div>
@@ -429,7 +449,7 @@ export function Calendar({ userId, sites }: { userId: string; sites: SiteRow[] }
       {/* Slide-in drawer (not a page change): the calendar and its filters stay as they were. */}
       <div className={`drawer${isOpen ? " open" : ""}`} inert={!isOpen}>
         <div className="dr-scrim" onClick={close} />
-        <aside className="dr-panel" role="dialog" aria-modal="true" aria-labelledby="dr-title">
+        <aside className={`dr-panel${panel?.t === "gap" ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="dr-title">
           <header className="dr-h">
             {stack.length > 1 && (
               <button type="button" className="dr-x" aria-label="Back" onClick={() => setStack((s) => s.slice(0, -1))}>&lsaquo;</button>

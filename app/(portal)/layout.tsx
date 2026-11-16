@@ -1,8 +1,7 @@
 import { Suspense } from "react";
 import { requireEntomologist } from "@/lib/auth";
-import { signOut } from "@/app/actions";
+import Link from "next/link";
 import { NotificationBell } from "@/components/NotificationBell";
-import { Live } from "@/components/Live";
 import { fmtDate, todayYmd } from "@/lib/time";
 
 function initials(name: string) {
@@ -39,11 +38,8 @@ async function TopBar() {
       <div className="acct">
         <span className="av" aria-hidden="true">{initials(me.fullName)}</span>
         <span className="acct-n">{me.fullName}</span>
-        <form action={signOut}>
-          <button type="submit" className="link">Sign out</button>
-        </form>
+        <Link href="/login" className="link">Sign out</Link>
       </div>
-      <Live userId={me.id} />
     </header>
   );
 }

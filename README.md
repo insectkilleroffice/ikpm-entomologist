@@ -1,7 +1,8 @@
 # IKPM Entomologist Portal
 
 Next.js 16 app for entomologists: verify completed jobs, read site reports, lodge complaints,
-request revisits / inspections, follow admin-scheduled meetings, calendar and notifications.
+request revisits / inspections, keep their own site inspections (visits, findings, fixed / not fixed),
+follow admin-scheduled meetings, calendar and notifications.
 
 It is **one page**, built like the Operations visit planner: filter sidebar · calendar ·
 selected-day panel (with your work summary and the selected site), and a slide-in drawer for
@@ -10,81 +11,30 @@ reports and photos, site reports, complaints, requests, meetings, lists and noti
 The open drawer is kept in the URL (`/?open=job_<id>`), and old record links such as
 `/jobs/<id>` (used in notifications) redirect there.
 
-It shares the Supabase project with **ikpm-admin** and **ikpm-operation** and builds on their
-`ops` schema instead of copying it:
+## UI only — no data
 
-| Spec name                 | Lives in                                          |
-| ------------------------- | ------------------------------------------------- |
-| profiles / roles          | `public.profiles` (role `entomologist` added)     |
-| clients, branches         | `ops.clients`, `ops.sites`                        |
-| jobs, job_reports         | `ops.visits`, `ops.service_reports`               |
-| site_inspections          | `ops.inspection_reports`                          |
-| PCOs                      | `ops.staff`                                       |
-| everything else           | schema **`ento`** (this repo's migrations)        |
+This version is **just the UI**: no database, no backend, no sample data.
 
-`ento` adds `site_access`, `job_assignments`, `job_verifications`, `complaints`, `complaint_updates`,
-`activity_requests`, `meetings`, `meeting_attendance`, `notifications`, `attachments`, `audit_log`,
-plus views (`v_jobs`, `v_sites`, `v_requests`, `v_complaints`, `v_inspections`, `v_my_meetings`).
+- Every screen shows its empty state ("No …" / "You're all caught up"). Data access is one stub in
+  `lib/client-data.ts`: every query resolves empty. Connect a real data source there.
+- Forms still validate and show their field errors and success messages (`app/actions.ts`), but nothing is saved.
+- The sign-in screen accepts any email and password; *Sign out* returns to it.
 
-## Setup
+## Run
 
-1. **Database** (Supabase → SQL Editor), after `ikpm-admin/supabase/fresh-start.sql` and `ops.sql`:
-   1. `supabase/migrations/20261114000100_ento_schema.sql` (once)
-   2. `supabase/migrations/20261114000200_ento_ops_bridge.sql` (re-runnable)
-   3. `supabase/migrations/20261114000300_ento_open_access.sql` — every entomologist sees all sites and can verify any job (no site authorization needed); queues already-completed jobs as pending
-   4. `supabase/migrations/20261114000400_ento_direct_revisit.sql` — revisits go straight to Operations (no admin approval)
-   5. `supabase/migrations/20261114000500_ento_job_complaint.sql` — "Lodge complaint" from the Verify tab (unclear photos / report category)
-   6. `supabase/migrations/20261114000600_ento_revisit_treatment.sql` — a revisit repeats the job's treatment with the same PCO, marked as an entomologist revisit with its reason
-   3. Settings → API → **Exposed schemas**: add `ento`.
+`npm install` · `npm run dev` · `npm run lint` · `npm run build`
 
-   > Re-running `ops.sql` drops schema `ops` with CASCADE, which removes the bridge (foreign keys,
-   > policies, the completion trigger, views). Run the bridge file again right after.
-   > `fresh-start.sql` resets unknown roles to `operations` — set entomologist profiles again after it.
+## Site inspections (visits + findings)
 
-2. **Entomologist logins**: Authentication → Users → Add user, then
-   ```sql
-   insert into public.profiles (id, full_name, email, role)
-   select id, 'Dr. Sana Malik', email, 'entomologist' from auth.users where email = 'sana@example.com';
-   ```
-
-3. **App**: `cp .env.example .env.local` (same URL + publishable key as the other portals), then
-   `npm install` and `npm run dev`. No service-role key is used anywhere.
-
-4. **Sample data (dev projects only)**: `supabase/seed/dev-sample-data.sql` (edit the two values at
-   the top); remove it with `dev-sample-data-cleanup.sql`.
-
-## How work reaches the entomologist
-
-- Operations files a service report (`ops.submit_service_report`) → a trigger creates the
-  `job_assignments` row for the site's primary entomologist with `verification_status = 'pending'`
-  and notifies them. Nothing is ever verified automatically.
-- Every Verify / Reject / Revisit decision is a permanent `job_verifications` row (verifier, time,
-  decision, remarks; reject needs a reason) and an `audit_log` entry.
-- All writes go through `SECURITY DEFINER` functions; tables only have SELECT policies.
-
-## Admin / Operations functions (for the Admin and Operations portals)
-
-These are the only writers of the admin-owned fields. Until the Admin portal has screens for them,
-they can be called with `supabase.schema('ento').rpc(...)` from a signed-in admin, or from the SQL
-editor after `select set_config('request.jwt.claim.sub', '<admin user id>', true);` in the same run.
-
-| Function | Who | Does |
-| --- | --- | --- |
-| `admin_set_site_access(site, entomologist, primary, active)` | admin | authorize an entomologist for a site |
-| `admin_assign_verifier(visit, entomologist)` | admin / site manager | (re)assign a completed job's verification |
-| `admin_return_for_verification(assignment, note)` | admin / site manager | after a rejection is corrected → pending again |
-| `admin_decide_request(id, 'approved'/'rejected', note, date?, time?, pco?)` | admin | approve / reject; with a date also schedules |
-| `admin_schedule_request(id, date, time, pco?)` | admin | creates the ops revisit / inspection visit |
-| `admin_update_complaint(id, status?, message, assigned_to?)` | admin / site manager | status flow + responses |
-| `admin_save_meeting(id?, title, starts, ends, location, link, agenda, attendees[])` | admin | create / edit / reschedule |
-| `admin_cancel_meeting(id, reason)` | admin | cancel |
-
-## Tests
-
-`npm run test:db` runs the real Admin/Ops schema files and both migrations on in-process Postgres
-(PGlite) and plays out every workflow as admin, operations and two entomologists with row security
-on (96 checks: access isolation, verification rules, request → scheduled visit → completion,
-complaint flow, meetings, notifications, audit, storage, sample data). It expects the sibling
-`../ikpm-admin` folder.
-
-`npm run lint` · `npm run build`
+- **Record visit** (site card, site report, a finding, or the gap report) turns the branch's gap report into
+  the visit form: date, pest activity, notes and photos on top, a *This visit* column to mark each open finding
+  *Open* / *Closed*, and new finding rows typed into their section. *Save visit* stores the visit: date (today or earlier), pest activity, notes, photos.
+- On the same visit the entomologist marks each of the site's **open findings** *Fixed* (closes it) or
+  *Not fixed* (stays open, counted), with a note — and adds
+  **new findings** (area, severity, description, photos).
+- The *Findings* tile lists **clients → branches** (open / closed counts, last visit). A branch opens its
+  **gap report**: findings grouped by category (Structural gap…) with S.No, department, location, observation,
+  photos, risk, recommendation, a status column per **visit** (New / Open / Closed / Not checked), gap
+  classification (Low / Moderate / High / Severe) and responsibility — printable (A4 landscape) or save as PDF.
+- Site report shows the **last visit**, open findings count, and *Findings* / *Visits* tabs; a finding
+  opens with its full history (found → each check). *My site visits* also appear on the calendar.

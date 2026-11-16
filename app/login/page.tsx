@@ -2,9 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
-/** Entomologists sign in with the account Admin created for them. */
+/** Sign-in screen. There is no login backend: any email and password open the portal. */
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -17,29 +16,8 @@ export default function LoginPage() {
     if (!email.trim() || !password) return setError("Enter your email and password");
     setLoading(true);
     setError(null);
-
-    const supabase = createClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error || !data.user) {
-      setLoading(false);
-      return setError(error?.message ?? "Sign in failed");
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", data.user.id)
-      .maybeSingle();
-    if (profile?.role !== "entomologist") {
-      await supabase.auth.signOut();
-      setLoading(false);
-      if (profileError) return setError(`Could not read your profile: ${profileError.message}`);
-      if (!profile) return setError("This login has no staff profile yet. Ask Admin to add you with the role 'entomologist'.");
-      return setError(`This account's role is '${profile.role}'. Only entomologists can sign in here.`);
-    }
-
+    await new Promise((r) => setTimeout(r, 300));
     router.replace("/");
-    router.refresh();
   }
 
   return (

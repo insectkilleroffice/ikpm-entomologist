@@ -1,18 +1,10 @@
-"use server";
-
+/* eslint-disable @typescript-eslint/no-unused-vars -- UI-only stubs keep their real signatures */
 /**
- * Every change this portal makes. Each action:
- *   1. checks the session and the entomologist role on the server,
- *   2. validates the input,
- *   3. calls a SECURITY DEFINER function in schema "ento", which checks again
- *      (assignment, site authorization, status) and writes the audit trail.
- * The browser never writes tables directly, and no service-role key is used.
+ * Every change this portal makes. UI only: each action validates the input (so forms show
+ * the same field errors) and returns the same message, but nothing is saved — there is no
+ * backend. Connect one by replacing the "save" step in each action.
  */
-import { redirect } from "next/navigation";
-import { refresh } from "next/cache";
-import { getSession } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import { dbError, validator } from "@/lib/validate";
+import { validator } from "@/lib/validate";
 import { todayYmd } from "@/lib/time";
 import type { ActionResult } from "@/lib/types";
 
@@ -21,19 +13,12 @@ const CATEGORIES = [
   "poor_treatment_quality", "pest_activity_present", "client_dissatisfaction",
   "pco_performance", "chemical_safety", "site_hygiene", "report_quality", "other",
 ] as const;
+/** Placeholder user folder for attachment checks (see lib/auth.ts). */
+const USER = "00000000-0000-4000-8000-000000000000";
 
-async function entomologist() {
-  const { supabase, me } = await getSession();
-  if (!me) return { error: { ok: false, error: "Your session has expired. Sign in again." } as const };
-  if (me.role !== "entomologist") return { error: { ok: false, error: "Only entomologists can do this." } as const };
-  return { supabase, db: supabase.schema("ento"), me };
-}
-
-export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/login");
-}
+/** Feels like a round trip, so pending states still show. */
+const pause = () => new Promise((r) => setTimeout(r, 250));
+const newId = () => crypto.randomUUID();
 
 /* ---------- Job verification ---------- */
 
@@ -48,32 +33,18 @@ export type DecideJobInput = {
 };
 
 export async function decideJob(input: DecideJobInput): Promise<ActionResult> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+  await pause();
   const v = validator();
-  const id = v.uuid("assignmentId", input.assignmentId, "the job");
+  v.uuid("assignmentId", input.assignmentId, "the job");
   const decision = v.oneOf("decision", input.decision, ["verified", "rejected"] as const, "Verify or Reject");
-  const remarks = v.text("remarks", input.remarks, { label: "Remarks", max: 2000 });
-  const reason = v.text("reason", input.reason, {
+  v.text("remarks", input.remarks, { label: "Remarks", max: 2000 });
+  v.text("reason", input.reason, {
     label: "Reason for rejection", required: decision === "rejected", min: decision === "rejected" ? 10 : 0, max: 2000,
   });
-  const pest = v.oneOf("pestActivity", input.pestActivity, ["none", "low", "medium", "high"] as const, "pest activity level", false);
-  const files = v.files("files", input.files, s.me.id);
+  v.oneOf("pestActivity", input.pestActivity, ["none", "low", "medium", "high"] as const, "pest activity level", false);
+  v.files("files", input.files, USER);
   const bad = v.result();
   if (bad) return bad;
-
-  const c = input.checks ?? {};
-  const { error } = await s.db.rpc("decide_job", {
-    p_assignment_id: id,
-    p_decision: decision,
-    p_remarks: remarks,
-    p_reason: decision === "rejected" ? reason : null,
-    p_checks: { treatment: !!c.treatment, chemicals: !!c.chemicals, photos: !!c.photos, report: !!c.report },
-    p_pest_activity: pest,
-    p_files: files,
-  });
-  if (error) return dbError(error);
-  refresh();
   return { ok: true, message: decision === "verified" ? "Job verified." : "Job rejected and returned for correction." };
 }
 
@@ -92,63 +63,42 @@ export type RequestInput = {
 };
 
 export async function submitRequest(input: RequestInput): Promise<ActionResult<{ id: string }>> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+  await pause();
   const v = validator();
   const type = v.oneOf("type", input.type, ["revisit", "inspection"] as const, "the request type");
-  const siteId = v.uuid("siteId", input.siteId, "the branch / site");
-  const visitId = v.uuid("visitId", input.visitId, "the previous job", type === "revisit");
-  const reason = type === "revisit" ? v.text("reason", input.reason, { label: "Reason for revisit", required: true, max: 500 }) : null;
-  const purpose = type === "inspection" ? v.text("purpose", input.purpose, { label: "Inspection purpose", required: true, max: 500 }) : null;
-  const description = v.text("description", input.description, {
+  v.uuid("siteId", input.siteId, "the branch / site");
+  v.uuid("visitId", input.visitId, "the previous job", type === "revisit");
+  if (type === "revisit") v.text("reason", input.reason, { label: "Reason for revisit", required: true, max: 500 });
+  if (type === "inspection") v.text("purpose", input.purpose, { label: "Inspection purpose", required: true, max: 500 });
+  v.text("description", input.description, {
     label: type === "inspection" ? "Observations" : "Pest activity / problem", required: true, min: 10, max: 4000,
   });
-  const priority = v.oneOf("priority", input.priority, PRIORITIES, "the priority");
-  const date = v.date("recommendedDate", input.recommendedDate, { label: "Recommended date", required: true, min: todayYmd() });
-  const files = v.files("files", input.files, s.me.id);
+  v.oneOf("priority", input.priority, PRIORITIES, "the priority");
+  v.date("recommendedDate", input.recommendedDate, { label: "Recommended date", required: true, min: todayYmd() });
+  v.files("files", input.files, USER);
   const bad = v.result();
   if (bad) return bad;
-
-  const { data, error } = await s.db.rpc("submit_request", {
-    p_type: type, p_site_id: siteId, p_visit_id: visitId, p_reason: reason, p_purpose: purpose,
-    p_description: description, p_priority: priority, p_recommended_date: date, p_files: files,
-  });
-  if (error) return dbError(error);
-  refresh();
-  return { ok: true, data: { id: data as string }, message: "Request sent to Admin for approval." };
+  return { ok: true, data: { id: newId() }, message: "Request sent to Admin for approval." };
 }
 
-/** Revisit straight to Operations (no admin approval): creates the ops revisit visit. */
+/** Revisit straight to Operations (no admin approval). */
 export async function sendRevisit(input: { visitId: string; reason: string; description: string; date: string; time: string }): Promise<ActionResult<{ id: string }>> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+  await pause();
   const v = validator();
-  const visitId = v.uuid("visitId", input.visitId, "the job");
-  const reason = v.text("reason", input.reason, { label: "Reason for revisit", required: true, max: 500 });
-  const description = v.text("description", input.description, { label: "Problem", required: true, min: 10, max: 4000 });
-  const date = v.date("date", input.date, { label: "Date", required: true, min: todayYmd() });
-  // Browsers may send "HH:MM:SS"; Operations stores "HH:MM".
+  v.uuid("visitId", input.visitId, "the job");
+  v.text("reason", input.reason, { label: "Reason for revisit", required: true, max: 500 });
+  v.text("description", input.description, { label: "Problem", required: true, min: 10, max: 4000 });
+  v.date("date", input.date, { label: "Date", required: true, min: todayYmd() });
+  // Browsers may send "HH:MM:SS".
   const hm = (input.time ?? "").slice(0, 5);
-  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(hm) ? hm : null;
-  if (!time) v.errors.time = "Pick a time";
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hm)) v.errors.time = "Pick a time";
   const bad = v.result();
   if (bad) return bad;
-  const { data, error } = await s.db.rpc("send_revisit", { p_visit_id: visitId, p_reason: reason, p_description: description, p_date: date, p_time: time });
-  if (error) return dbError(error);
-  refresh();
-  return { ok: true, data: { id: data as string }, message: "Revisit sent to Operations." };
+  return { ok: true, data: { id: newId() }, message: "Revisit sent to Operations." };
 }
 
-export async function cancelRequest(id: string): Promise<ActionResult> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
-  const v = validator();
-  const rid = v.uuid("id", id, "the request");
-  const bad = v.result();
-  if (bad) return bad;
-  const { error } = await s.db.rpc("cancel_request", { p_id: rid, p_note: null });
-  if (error) return dbError(error);
-  refresh();
+export async function cancelRequest(_id: string): Promise<ActionResult> {
+  await pause();
   return { ok: true, message: "Request withdrawn." };
 }
 
@@ -164,39 +114,82 @@ export type ComplaintInput = {
 };
 
 export async function lodgeComplaint(input: ComplaintInput): Promise<ActionResult<{ id: string }>> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+  await pause();
   const v = validator();
-  const siteId = v.uuid("siteId", input.siteId, "the branch / site");
-  const visitId = v.uuid("visitId", input.visitId, "the related job", false);
-  const category = v.oneOf("category", input.category, CATEGORIES, "the category");
-  const description = v.text("description", input.description, { label: "Description", required: true, min: 10, max: 4000 });
-  const priority = v.oneOf("priority", input.priority, PRIORITIES, "the priority");
-  const files = v.files("files", input.files, s.me.id);
+  v.uuid("siteId", input.siteId, "the branch / site");
+  v.uuid("visitId", input.visitId, "the related job", false);
+  v.oneOf("category", input.category, CATEGORIES, "the category");
+  v.text("description", input.description, { label: "Description", required: true, min: 10, max: 4000 });
+  v.oneOf("priority", input.priority, PRIORITIES, "the priority");
+  v.files("files", input.files, USER);
   const bad = v.result();
   if (bad) return bad;
-
-  const { data, error } = await s.db.rpc("lodge_complaint", {
-    p_site_id: siteId, p_visit_id: visitId, p_category: category, p_description: description,
-    p_priority: priority, p_files: files,
-  });
-  if (error) return dbError(error);
-  refresh();
-  return { ok: true, data: { id: data as string }, message: "Complaint sent to Admin / Operations." };
+  return { ok: true, data: { id: newId() }, message: "Complaint sent to Admin / Operations." };
 }
 
-export async function commentComplaint(id: string, message: string): Promise<ActionResult> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+export async function commentComplaint(_id: string, message: string): Promise<ActionResult> {
+  await pause();
   const v = validator();
-  const cid = v.uuid("id", id, "the complaint");
-  const text = v.text("message", message, { label: "Message", required: true, max: 4000 });
+  v.text("message", message, { label: "Message", required: true, max: 4000 });
   const bad = v.result();
   if (bad) return bad;
-  const { error } = await s.db.rpc("comment_complaint", { p_id: cid, p_message: text });
-  if (error) return dbError(error);
-  refresh();
   return { ok: true, message: "Note added." };
+}
+
+/* ---------- Site inspections (visits + findings) ---------- */
+
+export type SiteVisitInput = {
+  siteId: string;
+  visitDate: string;
+  pestActivity?: string;
+  notes?: string;
+  checks?: { findingId: string; result: "fixed" | "not_fixed"; note?: string }[];
+  findings?: {
+    category: string; department?: string; area?: string; description: string; risk?: string; recommendation?: string;
+    severity: string; responsibility?: string; files?: unknown;
+  }[];
+  files?: unknown;
+};
+
+/** One visit: re-check earlier findings (fixed / not fixed), add new findings, notes and photos. */
+export async function recordSiteVisit(input: SiteVisitInput): Promise<ActionResult<{ id: string }>> {
+  await pause();
+  const v = validator();
+  v.uuid("siteId", input.siteId, "the branch / site");
+  const date = v.date("visitDate", input.visitDate, { label: "Visit date", required: true });
+  if (date && date > todayYmd()) v.errors.visitDate = "The visit date cannot be in the future";
+  v.oneOf("pestActivity", input.pestActivity, ["none", "low", "medium", "high"] as const, "pest activity level", false);
+  const notes = v.text("notes", input.notes, { label: "Notes", max: 4000 });
+  v.files("files", input.files, USER);
+
+  const checks = (Array.isArray(input.checks) ? input.checks : []).map((c, i) => ({
+    finding_id: v.uuid(`check${i}`, c?.findingId, "the finding"),
+    result: v.oneOf(`check${i}`, c?.result, ["fixed", "not_fixed"] as const, "fixed or not fixed"),
+    note: v.text(`checkNote${i}`, c?.note, { label: "Note", max: 2000 }),
+  }));
+  const raw = Array.isArray(input.findings) ? input.findings : [];
+  if (raw.length > 20) v.errors.findings = "Add at most 20 new findings per visit";
+  const findings = raw.slice(0, 20).map((f, i) => {
+    v.oneOf(`category${i}`, f?.category, ["structural", "hygiene", "housekeeping", "pest_activity", "waste", "other"] as const, "the category");
+    v.text(`department${i}`, f?.department, { label: "Department", max: 200 });
+    v.text(`area${i}`, f?.area, { label: "Location", max: 200 });
+    v.text(`finding${i}`, f?.description, { label: "Observation", required: true, min: 5, max: 2000 });
+    v.text(`risk${i}`, f?.risk, { label: "Risk", max: 1000 });
+    v.text(`recommendation${i}`, f?.recommendation, { label: "Recommendation", max: 1000 });
+    v.oneOf(`severity${i}`, f?.severity, PRIORITIES, "the gap classification");
+    v.oneOf(`responsibility${i}`, f?.responsibility, ["client", "ikpm", "shared"] as const, "who is responsible", false);
+    v.files(`findingFiles${i}`, f?.files, USER);
+    return f;
+  });
+  if (!notes && !checks.length && !findings.length) v.errors.notes = "Add a finding, check an earlier finding, or write a visit note";
+  const bad = v.result();
+  if (bad) return bad;
+
+  const fixed = checks.filter((c) => c.result === "fixed").length;
+  return {
+    ok: true, data: { id: newId() },
+    message: `Visit saved${findings.length ? ` · ${findings.length} new finding${findings.length > 1 ? "s" : ""}` : ""}${fixed ? ` · ${fixed} fixed` : ""}.`,
+  };
 }
 
 /* ---------- Meetings ---------- */
@@ -209,22 +202,14 @@ export type MeetingResponseInput = {
 };
 
 export async function respondMeeting(input: MeetingResponseInput): Promise<ActionResult> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
+  await pause();
   const v = validator();
-  const id = v.uuid("meetingId", input.meetingId, "the meeting");
   const rsvp = v.oneOf("rsvp", input.rsvp, ["confirmed", "declined"] as const, "confirm or decline", false);
   const att = v.oneOf("attendance", input.attendance, ["attended", "absent"] as const, "attendance", false);
   const notes = input.notes === undefined ? null : (v.text("notes", input.notes, { label: "Notes", max: 4000 }) ?? "");
   const bad = v.result();
   if (bad) return bad;
   if (!rsvp && !att && notes === null) return { ok: false, error: "Nothing to save." };
-
-  const { error } = await s.db.rpc("respond_meeting", {
-    p_meeting_id: id, p_rsvp: rsvp, p_attendance: att, p_notes: notes,
-  });
-  if (error) return dbError(error);
-  refresh();
   return {
     ok: true,
     message: rsvp === "confirmed" ? "Attendance confirmed." : rsvp === "declined" ? "Meeting declined." : att ? "Attendance marked." : "Notes saved.",
@@ -233,12 +218,6 @@ export async function respondMeeting(input: MeetingResponseInput): Promise<Actio
 
 /* ---------- Notifications ---------- */
 
-export async function markNotificationsRead(ids?: string[]): Promise<ActionResult> {
-  const s = await entomologist();
-  if ("error" in s) return s.error!;
-  const list = ids?.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
-  const { error } = await s.db.rpc("mark_notifications_read", { p_ids: list && list.length ? list : null });
-  if (error) return dbError(error);
-  refresh();
+export async function markNotificationsRead(_ids?: string[]): Promise<ActionResult> {
   return { ok: true };
 }

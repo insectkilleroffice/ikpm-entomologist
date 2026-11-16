@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { markNotificationsRead } from "@/app/actions";
 import { fmtAgo } from "@/lib/time";
 import type { NotificationRow } from "@/lib/types";
-import { LIVE_EVENT, OPEN_EVENT } from "@/lib/client-data";
+import { ento, LIVE_EVENT, OPEN_EVENT } from "@/lib/client-data";
 import { panelFromLink, type Panel } from "./panels";
 
 /** Opens a panel in the planner drawer (the portal is a single page). */
@@ -26,7 +25,7 @@ export function NotificationBell({ userId }: { userId: string }) {
   const box = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
-    const db = createClient().schema("ento");
+    const db = ento();
     const [list, count] = await Promise.all([
       db.from("notifications").select("id,kind,title,body,link,entity_type,entity_id,read_at,created_at")
         .eq("assigned_to", userId).order("created_at", { ascending: false }).limit(10),
@@ -38,7 +37,7 @@ export function NotificationBell({ userId }: { userId: string }) {
   }, [userId]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch from Supabase
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch
     load();
     const onChange = (e: Event) => {
       const t = (e as CustomEvent).detail?.table;
