@@ -57,107 +57,72 @@ export type JobRow = {
   completed_at: string | null;
   round: number | null;
   return_note: string | null;
-  decided_at: string | null;
   last_decision: string | null;
-  last_remarks: string | null;
-  last_reason: string | null;
+  last_note: string | null;
+  last_issue: string | null;
   last_verifier_name: string | null;
   last_decided_at: string | null;
 };
 
+/** One decision on a job: verified, or marked as a complaint (service or document issue). */
 export type VerificationRow = {
   id: string;
   assignment_id: string;
   visit_id: string;
   round: number;
-  decision: string;
-  remarks: string | null;
-  reason: string | null;
-  treatment_ok: boolean | null;
-  chemicals_ok: boolean | null;
-  photos_ok: boolean | null;
-  report_ok: boolean | null;
-  pest_activity: string | null;
+  decision: "verified" | "complaint";
+  issue: "service" | "document" | null;
+  note: string | null;
+  complaint_id: string | null;
   created_by: string;
   verifier_name: string;
   created_at: string;
 };
 
-export type InspectionRow = {
-  visit_id: string;
-  site_id: string;
-  site_name: string;
-  client_id: string;
-  client_name: string;
-  visit_date: string;
-  visit_time: string;
-  visit_status: string;
-  note: string | null;
-  activity: string | null;
-  advice: string | null;
-  areas: string | null;
-  report_notes: string | null;
-  written_by_name: string | null;
-  written_at: string | null;
-  /** Findings Operations wrote, and their photos (ops-files: <visit>/findings/<n>/…). Older reports have none. */
-  findings?: string[] | null;
-  found_photos?: string[] | null;
-};
-
-export type RequestRow = {
+/** ento.v_inspection_tasks — an inspection Admin assigned to the entomologist; the report is a site visit. */
+export type InspectionTaskRow = {
   id: string;
   code: string;
-  type: "revisit" | "inspection";
-  client_id: string;
   site_id: string;
-  visit_id: string | null;
-  reason: string | null;
-  purpose: string | null;
-  description: string;
-  priority: string;
-  recommended_date: string;
-  status: string;
-  decision_note: string | null;
-  decided_by_name: string | null;
-  decided_at: string | null;
-  scheduled_date: string | null;
-  scheduled_time: string | null;
-  assigned_pco: string | null;
-  scheduled_visit_id: string | null;
-  created_by: string;
-  created_by_name: string;
-  created_at: string;
-  updated_at: string;
   site_name: string;
+  site_city: string | null;
+  client_id: string;
   client_name: string;
-  prev_job_code: string | null;
-  prev_visit_date: string | null;
-  scheduled_visit_status: string | null;
-  scheduled_job_code: string | null;
-  pco_name: string | null;
+  inspection_date: string;
+  inspection_time: string;
+  purpose: string;
+  instructions: string | null;
+  assigned_to: string;
+  assigned_by_name: string;
+  assigned_at: string;
+  status: "assigned" | "submitted";
+  site_visit_id: string | null;
+  submitted_at: string | null;
 };
 
+/** A service the entomologist marked as a complaint; Operations works on it. */
 export type ComplaintRow = {
   id: string;
   code: string;
   client_id: string;
   site_id: string;
-  visit_id: string | null;
-  category: string;
+  visit_id: string;
+  issue: "service" | "document";
   description: string;
-  priority: string;
   status: string;
   created_by: string;
   created_by_name: string;
-  assigned_to: string | null;
   resolved_at: string | null;
-  closed_at: string | null;
   created_at: string;
   updated_at: string;
   site_name: string;
   client_name: string;
   job_code: string | null;
   job_date: string | null;
+  /** Service issue: the complaint service Operations scheduled (once scheduled). */
+  service_visit_id: string | null;
+  service_job_code: string | null;
+  service_date: string | null;
 };
 
 export type ComplaintUpdateRow = {
@@ -232,6 +197,8 @@ export type ActionResult<T = undefined> =
 export type SiteVisitRow = {
   id: string;
   code: string;
+  /** The assigned inspection this visit is the report of. */
+  inspection_id: string | null;
   site_id: string;
   site_name: string;
   site_city: string | null;

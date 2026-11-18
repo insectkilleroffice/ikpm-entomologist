@@ -357,3 +357,7 @@ button.nt{width:100%;border:0;border-bottom:1px solid var(--line2);background:no
 .gap-log h4{font-size:var(--fs-m);font-weight:600}
 .gap-log .gap{min-width:640px}
 @media print{.gap-log .gap{min-width:0}}
+
+/* Complaint service pills (calendar) */
+.pl.complaint{background:#e6e1fb;color:#3f31a6}
+.gc-day.sel .pl.complaint{background:#d6cff8}

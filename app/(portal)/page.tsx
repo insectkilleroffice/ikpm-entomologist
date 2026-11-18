@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { requireEntomologist } from "@/lib/auth";
 import { Calendar } from "@/components/Calendar";
+import { DEMO_SITES } from "@/lib/demo-data";
 
 /** The whole portal is this one planner page; details open in its slide-in drawer. */
 export default function PlannerPage() {
@@ -13,5 +14,5 @@ export default function PlannerPage() {
 
 async function Planner() {
   const { me } = await requireEntomologist();
-  return <Calendar userId={me.id} sites={[]} />;
+  return <Calendar userId={me.id} sites={DEMO_SITES} />;
 }

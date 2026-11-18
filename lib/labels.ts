@@ -3,70 +3,44 @@
 export type Tone = "red" | "amber" | "green" | "gray" | "blue" | "violet";
 
 export const VERIFICATION: Record<string, { label: string; tone: Tone }> = {
-  pending: { label: "Pending verification", tone: "amber" },
+  pending: { label: "Needs verification", tone: "red" },
   verified: { label: "Verified", tone: "green" },
-  rejected: { label: "Rejected", tone: "red" },
-  revisit_requested: { label: "Revisit requested", tone: "violet" },
+  complaint: { label: "Complaint", tone: "violet" },
 };
 
 export const JOB_KIND: Record<string, string> = {
   monthly: "Monthly service",
   contract: "Contract service",
-  revisit: "Revisit",
-  inspection: "Inspection",
-  meeting: "Meeting",
-};
-
-export const VISIT_STATUS: Record<string, { label: string; tone: Tone }> = {
-  needs_pco: { label: "Awaiting PCO", tone: "amber" },
-  scheduled: { label: "Scheduled", tone: "blue" },
-  started: { label: "In progress", tone: "amber" },
-  needs_new_day: { label: "Needs new day", tone: "red" },
-  done: { label: "Completed", tone: "green" },
+  complaint_service: "Complaint service",
 };
 
 export const OUTCOME: Record<string, string> = { completed: "Completed", partial: "Partially completed" };
 
-export const COMPLAINT_CATEGORY: Record<string, string> = {
-  poor_treatment_quality: "Poor treatment quality",
-  pest_activity_present: "Pest activity still present",
-  client_dissatisfaction: "Client dissatisfaction",
-  pco_performance: "PCO performance",
-  chemical_safety: "Chemical / safety issue",
-  site_hygiene: "Site hygiene issue",
-  report_quality: "Unclear photos / report",
-  other: "Other",
+/** What is wrong with a service the entomologist marks as a complaint, and what Operations then does. */
+export const COMPLAINT_ISSUE: Record<string, { label: string; action: string }> = {
+  service: {
+    label: "Service issue",
+    action: "Operations marks this site as a complaint and schedules a complaint service. When the PCO completes it, it comes to you to verify.",
+  },
+  document: {
+    label: "Document issue",
+    action: "Operations corrects the documents and pictures of this service. The job then comes back to you to verify again.",
+  },
 };
 
 export const COMPLAINT_STATUS: Record<string, { label: string; tone: Tone }> = {
-  submitted: { label: "Submitted", tone: "gray" },
-  under_review: { label: "Under review", tone: "amber" },
-  assigned: { label: "Assigned", tone: "blue" },
+  submitted: { label: "With Operations", tone: "amber" },
   in_progress: { label: "In progress", tone: "blue" },
   resolved: { label: "Resolved", tone: "green" },
-  closed: { label: "Closed", tone: "gray" },
 };
-export const COMPLAINT_FLOW = ["submitted", "under_review", "assigned", "in_progress", "resolved", "closed"] as const;
-export const COMPLAINT_OPEN = ["submitted", "under_review", "assigned", "in_progress"];
+export const COMPLAINT_FLOW = ["submitted", "in_progress", "resolved"] as const;
+export const COMPLAINT_OPEN = ["submitted", "in_progress"];
 
-export const PRIORITY: Record<string, { label: string; tone: Tone }> = {
-  low: { label: "Low", tone: "gray" },
-  medium: { label: "Medium", tone: "blue" },
-  high: { label: "High", tone: "amber" },
-  critical: { label: "Critical", tone: "red" },
+/** An inspection Admin assigned to the entomologist; done when the report is submitted. */
+export const INSPECTION_STATUS: Record<string, { label: string; tone: Tone }> = {
+  assigned: { label: "Report due", tone: "red" },
+  submitted: { label: "Report submitted", tone: "green" },
 };
-
-export const REQUEST_TYPE: Record<string, string> = { revisit: "Revisit", inspection: "Inspection" };
-
-export const REQUEST_STATUS: Record<string, { label: string; tone: Tone }> = {
-  submitted: { label: "Awaiting admin", tone: "amber" },
-  approved: { label: "Approved", tone: "blue" },
-  rejected: { label: "Rejected", tone: "red" },
-  scheduled: { label: "Scheduled", tone: "blue" },
-  completed: { label: "Completed", tone: "green" },
-  cancelled: { label: "Withdrawn", tone: "gray" },
-};
-export const REQUEST_OPEN = ["submitted", "approved", "scheduled"];
 
 export const MEETING_STATUS: Record<string, { label: string; tone: Tone }> = {
   scheduled: { label: "Scheduled", tone: "blue" },
@@ -84,10 +58,6 @@ export const RSVP: Record<string, { label: string; tone: Tone }> = {
 export const ATTENDANCE: Record<string, string> = { unmarked: "Not marked", attended: "Attended", absent: "Absent" };
 
 export const PEST_ACTIVITY: Record<string, string> = { none: "None", low: "Low", medium: "Medium", high: "High" };
-
-export function lookup<T>(map: Record<string, T>, key: string | null | undefined, fallback: T): T {
-  return (key && map[key]) || fallback;
-}
 
 export const FINDING_STATUS: Record<string, { label: string; tone: Tone }> = {
   open: { label: "Open", tone: "amber" },
